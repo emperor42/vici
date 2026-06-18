@@ -1,3 +1,3 @@
-module github.com/Emperor42/vici
+module vici
 
 go 1.21

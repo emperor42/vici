@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vici - Card Timeline Builder</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+<h1>vici</h1>
+<p>Card-Based Timeline & Lore Builder</p>
+<a href="https://www.azzurro.tech" class="back">Go to Azzurro Technology</a>
+</header>
+<main>
+<div class="workspace">
+<section class="editor">
+<h2>Create Card</h2>
+<form id="card-form">
+<div class="field"><label>Name</label><input type="text" id="card-name" required></div>
+<div class="field"><label>Kind</label><select id="card-kind"><option>Event</option><option>Faction</option><option>Nation</option><option>Species</option><option>Leader</option></select></div>
+<div class="field"><label>Faction <small>(optional)</small></label><input type="text" id="card-faction" list="faction-list" placeholder="Faction name"><datalist id="faction-list"></datalist></div>
+<div class="field"><label>Nation <small>(optional)</small></label><input type="text" id="card-nation" list="nation-list" placeholder="Nation name"><datalist id="nation-list"></datalist></div>
+<div class="field"><label>Species <small>(optional)</small></label><input type="text" id="card-species" list="species-list" placeholder="Species name"><datalist id="species-list"></datalist></div>
+<div class="field"><label>Text</label><textarea id="card-text" rows="4" placeholder="Card text. Mention other card names to auto-link."></textarea></div>
+<button type="submit" class="button">Add Card</button>
+</form>
+</section>
+<section class="timeline">
+<h2>Timeline <small>({{len .}} cards)</small></h2>
+<div class="controls-bar">
+<input type="text" id="search-input" placeholder="Search cards..." class="search-input">
+<div class="kind-filters" id="kind-filters">
+<button class="kind-btn active" data-kind="all">All</button>
+<button class="kind-btn" data-kind="Event" style="--kind-clr:#c62828">Event</button>
+<button class="kind-btn" data-kind="Faction" style="--kind-clr:#ef6c00">Faction</button>
+<button class="kind-btn" data-kind="Nation" style="--kind-clr:#1565c0">Nation</button>
+<button class="kind-btn" data-kind="Species" style="--kind-clr:#2e7d32">Species</button>
+<button class="kind-btn" data-kind="Leader" style="--kind-clr:#7b1fa2">Leader</button>
+</div>
+<button id="export-btn" class="button secondary">Export CSV</button>
+<form id="import-form" style="display:inline;">
+<input type="file" id="import-file" accept=".csv" style="display:none;">
+<button id="import-btn" class="button secondary">Import CSV</button>
+</form>
+<button id="clear-btn" class="button danger">Clear All</button>
+</div>
+<div id="timeline" class="card-list">
+{{range .}}
+<div class="card" data-id="{{.ID}}" data-kind="{{.Kind}}">
+<div class="card-header">
+<span class="card-name">{{.Name}}</span>
+<span class="card-kind kind-{{.Kind}}">{{.Kind}}</span>
+</div>
+{{if or .Faction .Nation .Species}}
+<div class="card-types">
+{{if .Faction}}<span class="type-tag faction">F: {{.Faction}}</span>{{end}}
+{{if .Nation}}<span class="type-tag nation">N: {{.Nation}}</span>{{end}}
+{{if .Species}}<span class="type-tag species">S: {{.Species}}</span>{{end}}
+</div>
+{{end}}
+<div class="card-text">{{.Text}}</div>
+{{if .Links}}<div class="card-links">Links: {{range .Links}}<span class="tag">{{.}}</span>{{end}}</div>{{end}}
+<div class="card-meta">{{.CreatedAt}}</div>
+</div>
+{{else}}
+<p class="empty">No cards yet. Create one to start your timeline.</p>
+{{end}}
+</div>
+</section>
+</div>
+</main>
+
+<div id="edit-modal" class="modal">
+<div class="modal-overlay"></div>
+<div class="modal-content">
+<h2>Edit Card</h2>
+<form id="edit-form">
+<div class="field"><label>Name</label><input type="text" id="edit-name" required></div>
+<div class="field"><label>Kind</label><select id="edit-kind"><option>Event</option><option>Faction</option><option>Nation</option><option>Species</option><option>Leader</option></select></div>
+<div class="field"><label>Faction <small>(optional)</small></label><input type="text" id="edit-faction" list="edit-faction-list" placeholder="Faction name"><datalist id="edit-faction-list"></datalist></div>
+<div class="field"><label>Nation <small>(optional)</small></label><input type="text" id="edit-nation" list="edit-nation-list" placeholder="Nation name"><datalist id="edit-nation-list"></datalist></div>
+<div class="field"><label>Species <small>(optional)</small></label><input type="text" id="edit-species" list="edit-species-list" placeholder="Species name"><datalist id="edit-species-list"></datalist></div>
+<div class="field"><label>Text</label><textarea id="edit-text" rows="4" placeholder="Card text."></textarea></div>
+<div class="modal-actions">
+<button type="submit" class="button">Save</button>
+<button type="button" id="edit-cancel" class="button secondary">Cancel</button>
+</div>
+</form>
+</div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

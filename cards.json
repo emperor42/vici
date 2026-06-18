@@ -1,0 +1,28 @@
+[
+  {
+    "id": "id_get_1",
+    "name": "Get Test",
+    "kind": "Event",
+    "faction": "",
+    "nation": "",
+    "species": "",
+    "text": "test",
+    "tags": null,
+    "created_at": "",
+    "links": null
+  },
+  {
+    "id": "id_get_2",
+    "name": "Updated Card",
+    "kind": "Nation",
+    "faction": "",
+    "nation": "",
+    "species": "",
+    "text": "updated",
+    "tags": [
+      "updated"
+    ],
+    "created_at": "",
+    "links": null
+  }
+]

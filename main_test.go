@@ -1,12 +1,44 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "vici-test-")
+	if err != nil {
+		panic(err)
+	}
+	originalDataFile := dataFile
+	dataFile = filepath.Join(dir, "cards.json")
+	code := m.Run()
+	cardsMu.Lock()
+	cards = nil
+	cardsMu.Unlock()
+	dataFile = originalDataFile
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
+func resetCards(t *testing.T) {
+	t.Helper()
+	cardsMu.Lock()
+	cards = []Card{}
+	cardsMu.Unlock()
+	t.Cleanup(func() {
+		cardsMu.Lock()
+		cards = []Card{}
+		cardsMu.Unlock()
+	})
+}
 
 func validKinds() map[string]string {
 	return map[string]string{
@@ -243,6 +275,44 @@ func TestAutoLinkLocked(t *testing.T) {
 	cardsMu.Lock()
 	cards = nil
 	cardsMu.Unlock()
+}
+
+func TestAPIRequiresTokenWhenConfigured(t *testing.T) {
+	t.Setenv("VICI_API_TOKEN", "test-token")
+	resetCards(t)
+	handler := newHandler()
+	body := `{"name":"Protected card","kind":"Event","text":"no"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/cards", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated POST status = %d, want 401", rr.Code)
+	}
+	cardsMu.RLock()
+	count := len(cards)
+	cardsMu.RUnlock()
+	if count != 0 {
+		t.Fatalf("unauthenticated request changed cards: %d", count)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/cards", strings.NewReader(body))
+	req.Header.Set("X-Vici-Token", "test-token")
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("authenticated POST status = %d, want 201", rr.Code)
+	}
+}
+
+func TestNonLoopbackListenRequiresToken(t *testing.T) {
+	t.Setenv("VICI_API_TOKEN", "")
+	if err := validateListenSecurity("0.0.0.0:8085"); err == nil {
+		t.Fatal("non-loopback listener without token was accepted")
+	}
+	t.Setenv("VICI_API_TOKEN", "test-token")
+	if err := validateListenSecurity("0.0.0.0:8085"); err != nil {
+		t.Fatalf("non-loopback listener with token rejected: %v", err)
+	}
 }
 
 func TestCardsAPIEndpoint(t *testing.T) {
@@ -494,4 +564,125 @@ func TestExportHandler(t *testing.T) {
 	cardsMu.Lock()
 	cards = nil
 	cardsMu.Unlock()
+}
+
+func TestImportHandlerAssignsServerFields(t *testing.T) {
+	resetCards(t)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "cards.csv")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	csvData := "ID,Name,Kind,Faction,Nation,Species,Text,Tags,Links,CreatedAt\n" +
+		"client-id-1,Alpha,Event,Faction,Nation,Species,References Beta,tags,links,client-time\n" +
+		"client-id-2,Beta,Leader,,,,Mentions Alpha,tags,links,client-time\n"
+	if _, err := part.Write([]byte(csvData)); err != nil {
+		t.Fatalf("write CSV: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/import", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	importHandler(w, req)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusSeeOther)
+	}
+
+	got := cardsSnapshot()
+	if len(got) != 2 {
+		t.Fatalf("imported %d cards, want 2", len(got))
+	}
+	for i, card := range got {
+		if card.ID == "" || card.ID == "client-id-1" || card.ID == "client-id-2" {
+			t.Errorf("card %d retained a client ID: %q", i, card.ID)
+		}
+		if card.CreatedAt == "" {
+			t.Errorf("card %d has no server timestamp", i)
+		}
+		if len(card.Tags) == 0 {
+			t.Errorf("card %d has no derived tags", i)
+		}
+	}
+	if len(got[0].Links) != 1 || got[0].Links[0] != "Beta" {
+		t.Errorf("first card links = %v, want [Beta]", got[0].Links)
+	}
+	if len(got[1].Links) != 1 || got[1].Links[0] != "Alpha" {
+		t.Errorf("second card links = %v, want [Alpha]", got[1].Links)
+	}
+}
+
+func TestCardsAPIRejectsMalformedJSON(t *testing.T) {
+	resetCards(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/cards", bytes.NewBufferString("{"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	cardsHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestNormalizeCardOwnsServerFields(t *testing.T) {
+	card := Card{
+		ID:        "client-id",
+		Name:      "  Example  ",
+		Kind:      "",
+		Text:      "A description",
+		Tags:      []string{"client-tag"},
+		CreatedAt: "client-time",
+		Links:     []string{"client-link"},
+	}
+	if err := normalizeCard(&card); err != nil {
+		t.Fatalf("normalizeCard returned error: %v", err)
+	}
+	if card.Name != "Example" || card.Kind != "Event" {
+		t.Fatalf("normalized name/kind = %q/%q", card.Name, card.Kind)
+	}
+	if card.ID != "" || card.CreatedAt != "" || card.Tags != nil || card.Links != nil {
+		t.Fatalf("server-owned fields were retained: %+v", card)
+	}
+}
+
+func TestSaveAndLoadCards(t *testing.T) {
+	resetCards(t)
+	cardsMu.Lock()
+	cards = []Card{{ID: "roundtrip", Name: "Round Trip", Kind: "Event", Text: "saved"}}
+	if err := saveCardsLocked(); err != nil {
+		cardsMu.Unlock()
+		t.Fatalf("saveCardsLocked returned error: %v", err)
+	}
+	cardsMu.Unlock()
+
+	cardsMu.Lock()
+	cards = nil
+	cardsMu.Unlock()
+	if err := loadCards(); err != nil {
+		t.Fatalf("loadCards returned error: %v", err)
+	}
+	got := cardsSnapshot()
+	if len(got) != 1 || got[0].ID != "roundtrip" || got[0].Name != "Round Trip" {
+		t.Fatalf("loaded cards = %+v", got)
+	}
+}
+
+func TestCardByIDRejectsUnsupportedMethod(t *testing.T) {
+	resetCards(t)
+	req := httptest.NewRequest(http.MethodDelete, "/api/cards/does-not-matter", nil)
+	w := httptest.NewRecorder()
+
+	cardByIDHandler(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+	}
+	if got := w.Header().Get("Allow"); got != "GET, PUT" {
+		t.Fatalf("Allow = %q, want %q", got, "GET, PUT")
+	}
 }

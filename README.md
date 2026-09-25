@@ -1,612 +1,215 @@
-# VICI (Change Management System)
+# VICI
 
-**MIT License © Matthew Salvatore Giancola**
+VICI is two independent pieces:
 
-## Overview
+1. `vici.js` is a browser utility for non-`HttpOnly` cookies and Web Crypto
+   encryption/decryption.
+2. `main.go` is an optional local card/timeline and lore editor with a small
+   JSON and CSV API.
 
-VICI is a web-based change management system that allows users to change a website which is currently active. Similar to the WordPress admin view, it provides a comprehensive change management interface for websites, web applications, and digital platforms. It includes complete CRUD operations for pages and features with full security controls.
+The Go demo is not a WordPress-style page CMS, an authentication service, or a
+payment system. The browser utility and the Go demo do not share state or an
+API. `legacy/` is parked historical material and is not part of the supported
+runtime.
 
-## Installation
+## Browser utility (`vici.js`)
 
-### Prerequisites
-- Modern web browser with JavaScript support
-- No external server dependencies required
-- Optional: Backend services for advanced features (if integrated)
+### Loading and requirements
 
-### Installation Steps
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/emperor42/vici.git
-   cd vici
-   ```
-
-2. No installation required for runtime usage
-3. For advanced features, optional backend services can be added
-
-## Usage (Standalone)
-
-### Basic Usage
-
-```javascript
-// Include VICI in your HTML
-<script src="vici.js"></script>
-
-// Initialize VICI
-const vici = new VICI({
-  siteUrl: 'https://your-website.com',
-  apiEndpoint: 'https://api.your-website.com',
-  features: ['pages', 'features', 'deployments']
-});
-
-// Initialize and start
-vici.init();
-```
-
-### Advanced Usage
-
-```javascript
-// Create a comprehensive VICI instance
-const vici = new VICI({
-  siteUrl: 'https://your-website.com',
-  apiEndpoint: 'https://api.your-website.com',
-  features: {
-    pages: {
-      create: true,
-      read: true,
-      update: true,
-      delete: true,
-      versions: true,
-      rollback: true
-    },
-    features: {
-      create: true,
-      read: true,
-      update: true,
-      delete: true,
-      versions: true,
-      testing: true
-    },
-    deployments: {
-      create: true,
-      read: true,
-      update: true,
-      delete: true,
-      validation: true,
-      rollback: true
-    }
-  },
-  security: {
-    requireAuthentication: true,
-    roleBasedAccess: true,
-    encryptionKey: 'your-encryption-key'
-  },
-  ui: {
-    theme: 'default',
-    language: 'en',
-    autoSave: true,
-    notifications: true
-  }
-});
-
-// Initialize and start
-vici.init().then(() => {
-  console.log('VICI initialized successfully');
-  vici.renderAdminInterface();
-});
-```
-
-### API Endpoints
-
-| Method | Description |
-|--------|-------------|
-| `new VICI(options)` | Create new VICI instance |
-| `vici.init()` | Initialize VICI |
-| `vici.renderAdminInterface()` | Render admin interface |
-| `vici.getChanges()` | Get all changes |
-| `vici.getChange(id)` | Get specific change |
-| `vici.createChange(data)` | Create new change |
-| `vici.updateChange(id, updates)` | Update change |
-| `vici.deleteChange(id)` | Delete change |
-| `vici.rollbackChange(id, version)` | Rollback change |
-| `vici.validateChange(change)` | Validate change |
-
-### Example HTML Page
+Load the plain browser script normally:
 
 ```html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>VICI Change Management Demo</title>
-    <!-- Include VICI -->
-    <script src="vici.js"></script>
-</head>
-<body>
-    <!-- VICI will render admin interface here -->
-    <div id="vici-admin"></div>
-    
-    <!-- VICI will manage website changes here -->
-    <div id="website-content">
-        <h1>Current Website Content</h1>
-        <p>This content can be changed through VICI.</p>
-    </div>
-    
-    <script>
-    // Initialize VICI
-    const vici = new VICI({
-        siteUrl: 'https://your-website.com',
-        apiEndpoint: 'https://api.your-website.com',
-        features: {
-            pages: { create: true, read: true, update: true, delete: true, versions: true }
-        }
-    });
-    
-    // Initialize and render admin interface
-    vici.init().then(() => {
-        console.log('VICI initialized successfully');
-        // VICI will automatically render admin interface
-    });
-    </script>
-</body>
-</html>
+<script src="/path/to/vici.js"></script>
 ```
 
-## Integration with ATP
+In a browser it exposes:
 
-### Change Integration
+- `window.Vici` — the `Vici` class.
+- `window.vici` — a ready-to-use singleton.
 
-VICI integrates with ATP to provide centralized change management:
+The file has no npm build step and no server dependency. Cookie methods use
+`document.cookie`; encryption methods require a browser/Web Crypto environment
+with `crypto.subtle` and `crypto.getRandomValues` (normally a secure context in
+current browsers).
 
-```javascript
-// VICI with ATP integration
-const vici = new VICI({
-    siteUrl: 'https://your-website.com',
-    apiEndpoint: '/atp/api',
-    features: {
-        pages: { create: true, read: true, update: true, delete: true }
-    },
-    syncWithATP: true,
-    onChangesLoaded: function(changes) {
-        // Process ATP-integrated changes
-        changes.forEach(change => {
-            vici.createChange(change);
-        });
-    }
+### Cookies
+
+```js
+const result = vici.cookieSet("theme", "dark", 30, {
+  path: "/",
+  sameSite: "Lax"
 });
+// { ok: true, warnings: [] }
 
-// Synchronize with ATP
-vici.syncWithATP().then(() => {
-    console.log('Changes synchronized with ATP');
-    const changes = vici.getChanges();
-    console.log(`Loaded ${changes.length} changes from ATP`);
-});
+const theme = vici.cookieGet("theme");       // "dark" or null
+vici.cookieDelete("theme", { path: "/" });
+const allReadableCookies = vici.cookieAll();
 ```
 
-### Configuration Integration
+`new Vici({ domain, path, secure })` supplies defaults for later calls. The
+actual methods and options are:
 
-```javascript
-// VICI configuration for ATP integration
-const viciConfig = {
-    siteUrl: 'https://your-website.com',
-    apiEndpoint: '/atp/api',
-    features: {
-        pages: { create: true, read: true, update: true, delete: true, versions: true },
-        features: { create: true, read: true, update: true, delete: true },
-        deployments: { create: true, read: true, update: true, delete: true }
-    },
-    security: {
-        requireAuthentication: true,
-        roleBasedAccess: true,
-        encryptionKey: 'your-encryption-key'
-    },
-    syncStrategy: 'merge', // merge, replace, append
-    onSync: function(data) {
-        console.log('Changes synchronized:', data);
-    },
-    onError: function(error) {
-        console.error('Change management error:', error);
-    }
-};
+| API | Behavior |
+| --- | --- |
+| `cookieSet(name, value, days, options)` | Writes a URI-encoded cookie. Positive `days` adds an expiry; zero/omitted creates a session cookie. Supports `path`, `domain`, `secure`, and `sameSite`. |
+| `cookieGet(name)` | Returns the decoded value visible to JavaScript, or `null`. |
+| `cookieDelete(name, options)` | Writes an expired cookie using the supplied/default path and domain. |
+| `cookieAll()` | Returns all cookies readable by the current page. |
+
+Passing `httpOnly: true` returns a warning because JavaScript cannot set the
+`HttpOnly` attribute. The server must emit that attribute in a `Set-Cookie`
+header. Cookies without `Secure` or `SameSite` remain subject to the browser's
+normal cookie rules; this utility does not provide a session or an
+authorization boundary.
+
+The aliases `setCookie`, `getCookie`, and `deleteCookie` point to the cookie
+methods above.
+
+### Encryption
+
+```js
+const payload = await vici.encrypt("private text", "a strong passphrase");
+const plaintext = await vici.decrypt(payload, "a strong passphrase");
 ```
 
-### Change Management Pipeline
+`encrypt` uses PBKDF2-SHA-256 (100,000 iterations in the current file) to
+derive a non-exportable AES-256-GCM key, then returns a portable string in the
+form:
 
-1. **Change Creation**: Users create changes through VICI interface
-2. **Change Validation**: Changes are validated and approved
-3. **Change Deployment**: Changes are deployed to the website
-4. **Change Versioning**: Changes are versioned for rollback
-5. **Change Monitoring**: Changes are monitored and tracked
-6. **Integration**: Changes are integrated with ATP platform
-
-## Development Setup
-
-### Local Development
-
-```bash
-# Test in browser
-# Open browser and load:
-# http://localhost:8080/vici.html
-# (VICI will automatically load and display change management interface)
-
-# Or with Node.js
-node -e "require('vici').test()"
+```text
+base64(salt).base64(iv).base64(ciphertext)
 ```
 
-### Testing
+With `{ raw: true }`, it returns `base64(iv || ciphertext)` instead. `decrypt`
+accepts either form. `randomBytes`, `randomToken`, and `sha256Hex` are also
+exposed. The `hash` alias calls `sha256Hex`.
 
-```javascript
-// Basic VICI usage test
-const VICI = window.VICI;
+These operations are useful for data that the page deliberately handles in the
+browser, but they do not protect a value from script running on the same
+origin, a compromised browser/profile, or a server that receives plaintext.
+There is no key management, user identity, authentication, or server API in
+this file.
 
-const testVici = () => {
-    // Test VICI initialization
-    const vici = new VICI({
-        siteUrl: 'https://example.com',
-        features: { pages: { create: true, read: true } }
-    });
-    
-    expect(vici).toBeDefined();
-    expect(vici.siteUrl).toBe('https://example.com');
-    expect(vici.features.pages.create).toBe(true);
-};
+## Optional Go card demo
 
-// Change management test
-const testChangeManagement = () => {
-    const vici = new VICI({
-        siteUrl: 'https://example.com',
-        features: { pages: { create: true, read: true } }
-    });
-    
-    vici.init().then(() => {
-        // Create new change
-        const change = vici.createChange({
-            title: 'New Homepage Design',
-            description: 'Update homepage with new design',
-            type: 'content',
-            status: 'pending'
-        });
-        
-        expect(change).toBeDefined();
-        expect(change.title).toBe('New Homepage Design');
-    });
-};
+The Go program serves a card-based fictional-world editor. It uses only the
+standard library and stores cards in a JSON file.
+
+### Run locally
+
+From this directory:
+
+```sh
+gofmt -w main.go
+go run .
 ```
 
-### Building
+The default listener is `127.0.0.1:8085`. The loopback bind is intentional.
+The API is unauthenticated only in this local mode; a non-loopback listener is
+refused at startup unless `VICI_API_TOKEN` is set. When set, the token is
+required for all non-static routes (bearer or `X-Vici-Token`). Open
+<http://127.0.0.1:8085/> in a browser.
 
-```bash
-# Build for distribution
-npm run build
+Environment variables:
 
-# Output: dist/vici.js (optimized and bundled)
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `VICI_HOST` | `127.0.0.1` | Listen address. |
+| `VICI_PORT` | `8085` | Listen port. |
+| `VICI_API_TOKEN` | unset | Required when binding a non-loopback address; protects the API. |
+| `VICI_DATA_FILE` | `cards.json` | JSON data file. |
 
-# Test in browser
-# Open browser and load: dist/vici.js
+Example with a separate data file and port:
+
+```sh
+VICI_DATA_FILE=/tmp/vici-cards.json VICI_PORT=8090 go run .
 ```
 
-## API Specifications
+The data file is rewritten atomically on successful changes. It is local demo
+data, not a multi-user database; make a backup before using it for anything
+important.
 
-### High Maturity API (Event-driven)
+### Actual demo routes
 
-#### Change Management
-- `new VICI(options)` - Create new VICI instance
-- `vici.init()` - Initialize VICI
-- `vici.renderAdminInterface()` - Render admin interface
-- `vici.getChanges()` - Get all changes
-- `vici.getChange(id)` - Get specific change
-- `vici.createChange(data)` - Create new change
-- `vici.updateChange(id, updates)` - Update change
-- `vici.deleteChange(id)` - Delete change
-- `vici.rollbackChange(id, version)` - Rollback change
-- `vici.validateChange(change)` - Validate change
+| Route | Method | Description |
+| --- | --- | --- |
+| `/` | `GET` | Server-rendered card editor and timeline. |
+| `/api/cards` | `GET` | Returns the current cards as JSON. |
+| `/api/cards` | `POST` | Creates a card from JSON. `name` is required; `kind` defaults to `Event` and must be one of `Event`, `Faction`, `Nation`, `Species`, or `Leader`. The server assigns ID and timestamp. |
+| `/api/cards` | `DELETE` | Clears all cards. |
+| `/api/cards/{id}` | `GET` | Returns one card. |
+| `/api/cards/{id}` | `PUT` | Replaces the editable fields of one card. |
+| `/api/export` | `GET` | Downloads the current cards as CSV. |
+| `/api/import` | `POST` | Imports a multipart CSV upload. The first row is treated as a header; imported rows are appended, not merged by ID. |
+| `/static/*` | `GET` | Demo CSS and browser JavaScript. |
 
-#### Feature Management
-- `vici.createFeature(data)` - Create new feature
-- `vici.getFeatures()` - Get all features
-- `vici.updateFeature(id, updates)` - Update feature
-- `vici.deleteFeature(id)` - Delete feature
+For example:
 
-#### User Management
-- `vici.login(userId, password)` - User login
-- `vici.logout()` - User logout
-- `vici.getCurrentUser()` - Get current user
-- `vici.setUser(user)` - Set current user
-
-#### Change Validation
-- `vici.validateChange(change)` - Validate change
-- `vici.approveChange(changeId)` - Approve change
-- `vici.rejectChange(changeId)` - Reject change
-
-### VICI APIs
-
-```javascript
-// Create VICI instance
-const vici = new VICI({
-    siteUrl: 'https://example.com',
-    apiEndpoint: 'https://api.example.com',
-    features: {
-        pages: { create: true, read: true, update: true, delete: true }
-    }
-});
-
-// Initialize and render
-vici.init().then(() => {
-    console.log('VICI initialized successfully');\n  // Get changes
-    const changes = vici.getChanges();
-    console.log(`Loaded ${changes.length} changes`);
-
-    // Create new change
-    const newChange = vici.createChange({
-        title: 'New Homepage Design',
-        description: 'Update homepage with new design',
-        type: 'content',
-        status: 'pending'
-    });
-
-    console.log('Change created:', newChange);
-});
-
-// Event handling
-vici.on('change-created', (event) => {
-    console.log('Change created:', event.change);
-});
-
-vici.on('change-updated', (event) => {
-    console.log('Change updated:', event.change);
-});
-
-vici.on('change-deleted', (event) => {
-    console.log('Change deleted:', event.changeId);
-});
+```sh
+curl http://127.0.0.1:8085/api/cards
+curl -X POST http://127.0.0.1:8085/api/cards \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"The First Event","kind":"Event","text":"A beginning"}'
 ```
 
-### VICI-specific Events
+The page's card values are rendered with Go's `html/template` escaping. The
+JSON API still accepts untrusted input, so the demo applies request-size,
+field-length, CSV-row, and method limits, but it does not provide a trust
+boundary.
 
-```javascript
-// Change creation event
-vici.on('change-created', (event) => {
-    const { change } = event;
-    console.log(`Change created: ${change.title}`);
-});
+### Security limitations
 
-// Change update event
-vici.on('change-updated', (event) => {
-    const { change } = event;
-    console.log(`Change updated: ${change.title}`);
-});
+- There are no users, passwords, sessions, roles, permissions, CSRF tokens,
+  audit log, or TLS termination in this demo.
+- In the default loopback mode there is no API token. A non-loopback listener
+  is refused unless `VICI_API_TOKEN` is set; with a token, all non-static
+  routes require a constant-time bearer/`X-Vici-Token` check. Keep it on
+  loopback or behind a separately reviewed authentication and network policy.
+- The card store has a 10,000-card quota, an 8 MiB import limit, and bounded
+  field lengths. `cards.json` contains the card data in plaintext. File
+  permissions and backups are the operator's responsibility; the browser
+  encryption helper does not encrypt this server-side file.
+- CSV import is intentionally simple. It assumes the first row is a header,
+  appends rows, and does not provide a migration or conflict-resolution
+  workflow.
+- The browser's `document.cookie` view excludes `HttpOnly` cookies, and
+  client-side encryption cannot defend against same-origin XSS. Those are
+  properties of the platform, not protections supplied by this repository.
 
-// Change delete event
-vici.on('change-deleted', (event) => {
-    const { changeId } = event;
-    console.log(`Change deleted: ${changeId}`);
-});
+### Container image
 
-// Change validation event
-vici.on('change-validated', (event) => {
-    const { change, isValid } = event;
-    if (isValid) {
-        console.log(`Change validated: ${change.title}`);
-    } else {
-        console.error(`Change validation failed: ${change.title}`);
-    }
-});
+The Dockerfile uses `golang:1.21-alpine`, matching the `go 1.21` directive in
+`go.mod`, and builds the module with `go build .`:
 
-// Change approval event
-vici.on('change-approved', (event) => {
-    const { change } = event;
-    console.log(`Change approved: ${change.title}`);
-});
-
-// Change rejection event
-vici.on('change-rejected', (event) => {
-    const { change, reason } = event;
-    console.error(`Change rejected: ${change.title} - Reason: ${reason}`);
-});
+```sh
+docker build -t vici-card-demo .
+docker run --rm -p 127.0.0.1:8085:8085 \
+  -e VICI_API_TOKEN='replace-with-a-long-random-token' \
+  -v "$PWD/data:/app/data" \
+  -e VICI_DATA_FILE=/app/data/cards.json \
+  vici-card-demo
 ```
 
-## Security API
+The container listens on `0.0.0.0:8085` internally so a published port works.
+The example publishes it only to host loopback. Do not change that to a public
+interface without adding authentication, authorization, CSRF handling, TLS,
+and an appropriate data backup policy.
 
-### Change Security
-- `vici.setEncryptionKey(key)` - Set encryption key
-- `vici.requireAuthentication(require)` - Require authentication
-- `vici.setAccessControl(roles)` - Set access control
+## Checks
 
-### User Management
-- `vici.login(userId, password)` - Authenticate user
-- `vici.logout()` - Logout user
-- `vici.getCurrentUser()` - Get current user
+From this directory:
 
-### Authorization
-- `vici.hasPermission(userId, resource, action)` - Check permissions
-- `vici.grantPermission(permission)` - Grant permission
-- `vici.revokePermission(permission)` - Revoke permission
+For a container or other non-loopback deployment, provide `VICI_API_TOKEN` and
+send it as `Authorization: Bearer …` (or `X-Vici-Token`) on every non-static
+request. The token is a demo guard, not a user/session system.
 
-## Integration API
-
-### VICI Integration
-- `vici.syncWithVICI(config)` - Synchronize with VICI
-- `vici.getVICIChanges()` - Get VICI changes
-- `vici.applyVICIChanges(changes)` - Apply VICI changes
-
-### VIDI Integration
-- `vidi.getVICIState()` - Get VICI state
-- `vidi.syncWithVICI(data)` - Synchronize with VICI
-- `vidi.getVIDIAnalytics()` - Get VIDI analytics
-
-### VINI Integration
-- `vici.getVINIWorkflows()` - Get VINI workflows
-- `vici.integrateWithVINI(workflow)` - Integrate with VINI workflow
-- `vici.executeVINIWorkflow(workflow)` - Execute VINI workflow
-
-## Monitoring API
-
-### Change Monitoring
-- `vici.onChangeAdded(callback)` - Change added callback
-- `vici.getChangeLogs()` - Get change logs
-- `vici.getChangeMetrics()` - Get change metrics
-
-### Change Events
-- `vici.onChangeCreate(callback)` - Change create callback
-- `vici.onChangeUpdate(callback)` - Change update callback
-- `vici.onChangeDelete(callback)` - Change delete callback
-- `vici.onChangeValidate(callback)` - Change validation callback
-- `vici.onChangeApprove(callback)` - Change approval callback
-
-## Error Handling
-
-### VICI Error Types
-- `ChangeError` - Change management errors
-- `ValidationError` - Validation errors
-- `SecurityError` - Security errors
-- `IntegrationError` - Integration errors
-
-### Error Response Format
-```javascript
-// VICI errors
-class VICIError extends Error {
-  constructor(message, code, details) {
-    super(message);
-    this.code = code;
-    this.details = details;
-    this.timestamp = new Date().toISOString();
-  }
-}
+```sh
+gofmt -w main.go
+go test ./...
+node --check vici.js
+node --check static/app.js
 ```
 
-## Testing
-
-### Unit Tests
-
-```javascript
-// Test VICI initialization
- test('VICI Initialization', () => {
-   const vici = new VICI({
-     siteUrl: 'https://example.com',
-     features: { pages: { create: true } }
-   });
-   expect(vici).toBeDefined();
-   expect(vici.siteUrl).toBe('https://example.com');
- });
-
-// Test change management
- test('Change Management', () => {
-   const vici = new VICI({
-     siteUrl: 'https://example.com',
-     features: { pages: { create: true, read: true } }
-   });
-
-   const change = vici.createChange({
-     title: 'Test Change',
-     description: 'Test change description'
-   });
-
-   expect(change).toBeDefined();
-   expect(change.title).toBe('Test Change');
- });
-```
-
-### Integration Tests
-
-```javascript
-// Test VICI integration
- test('VICI-VENI Integration', () => {
-   const vici = new VICI({
-     siteUrl: 'https://example.com',
-     features: { pages: { create: true, read: true } }
-   });
-
-   vici.init().then(() => {
-     const changes = vici.getChanges();
-     expect(changes).toBeDefined();
-   });
- });
-```
-
-## Performance Considerations
-
-- **Memory Usage**: Monitor for large change sets
-- **CPU Usage**: Optimize change processing algorithms
-- **Network I/O**: Cache frequently used changes
-- **Disk I/O**: Use efficient storage for large change sets
-- **Concurrent Processing**: Support for concurrent change management
-
-## Future Enhancements
-
-- **Advanced Validation**: Add advanced change validation
-- **AI Integration**: Integrate AI for change optimization
-- **Real-time Collaboration**: Add real-time collaboration features
-- **Advanced Version Control**: Enhanced version control capabilities
-- **Cloud Integration**: Integrate with cloud services
-
-## Troubleshooting
-
-### Common Issues
-
-1. **VICI not loading**
-   ```javascript
-   // Check VICI configuration
-   const vici = new VICI({
-     siteUrl: 'https://example.com',
-     features: { pages: { create: true } }
-   });
-   
-   // Test VICI initialization
-   console.log('VICI initialized:', vici);
-   ```
-
-2. **Change errors**
-   ```javascript
-   // Check change validation
-   vici.validateChange(change);
-   
-   // Check change logs
-   const logs = vici.getChangeLogs();
-   console.log(logs);
-   ```
-
-3. **Event listener issues**
-   ```javascript
-   // Check event listener registration
-   vici.on('change-created', (event) => {
-     console.log('Change created:', event.change);
-   });
-   ```
-
-### Debugging Commands
-
-```javascript
-// Enable debug logging
-vici.setDebugMode(true);
-
-// Check change logs
-const logs = vici.getChangeLogs();
-console.log(logs);
-
-// Monitor system resources
-// Use browser dev tools to monitor performance
-```
-
-## Conclusion
-
-VICI provides a comprehensive change management solution that enables teams to manage website changes through a web-based interface. It offers WordPress-like functionality while maintaining modern web development practices and security standards.
-
-Key benefits:
-
-- **Change Management**: Comprehensive change tracking and management
-- **Feature Management**: Complete feature lifecycle management
-- **Version Control**: Secure version control and rollback
-- **Security**: Comprehensive security features and controls
-- **Integration**: Rich integration capabilities with other Emperor42 projects
-- **Monitoring**: Comprehensive change monitoring and analytics
-- **Flexibility**: Flexible change management and workflow
-
-This change management system is production-ready and can be easily integrated into web applications with comprehensive change tracking and security features.
-
----
-
-*Document Version: 1.0*
-*Created: 2026-08-25*
-*Last Updated: 2026-08-25*
-*Status: Production Ready*
-
-**License:** MIT License © Matthew Salvatore Giancola.
+The Go tests use a temporary data file so running them does not rewrite the
+checked-in demo data. There is no npm package, bundler, or browser test suite
+in this repository.

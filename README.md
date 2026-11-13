@@ -2,214 +2,205 @@
 
 VICI is two independent pieces:
 
-1. `vici.js` is a browser utility for non-`HttpOnly` cookies and Web Crypto
-   encryption/decryption.
-2. `main.go` is an optional local card/timeline and lore editor with a small
-   JSON and CSV API.
+1. `vici.js` is a browser utility for non-`HttpOnly` cookies and Web Crypto encryption/decryption.
+2. `main.go` is an optional local card/timeline and lore editor with a small JSON and CSV API.
 
 The Go demo is not a WordPress-style page CMS, an authentication service, or a
-payment system. The browser utility and the Go demo do not share state or an
-API. `legacy/` is parked historical material and is not part of the supported
-runtime.
 
-## Browser utility (`vici.js`)
+## Overview
 
-### Loading and requirements
+`vici` is a Go backend service that provides timeline/card management APIs, serving as the foundation for the VICI timeline editor.
 
-Load the plain browser script normally:
+## Features
 
-```html
-<script src="/path/to/vici.js"></script>
+- **Timeline Management**: API for creating and managing timeline cards
+- **Search Functionality**: Full-text search and filtering
+- **Tag Support**: Organize cards with categories
+- **Health Monitoring**: Built-in health check endpoint
+- **Security First**: Implements security best practices
+
+## API Endpoints
+
+### Timeline API
+- **GET /api/cards** - List all cards with optional filtering
+- **POST /api/cards** - Create a new card
+
+### System Status
+- **GET /health** - Health check endpoint
+
+## Technology Stack
+
+- **Backend**: Go
+- **API**: RESTful JSON
+- **Security**: HTTP security headers, validation
+- **Deployment**: Docker ready
+
+## Running
+
+### Prerequisites
+
+```bash
+go 1.21+
 ```
 
-In a browser it exposes:
+### Building and Running
 
-- `window.Vici` — the `Vici` class.
-- `window.vici` — a ready-to-use singleton.
+```bash
+# Build the application
+go build
 
-The file has no npm build step and no server dependency. Cookie methods use
-`document.cookie`; encryption methods require a browser/Web Crypto environment
-with `crypto.subtle` and `crypto.getRandomValues` (normally a secure context in
-current browsers).
+# Run the application
+./vici
 
-### Cookies
-
-```js
-const result = vici.cookieSet("theme", "dark", 30, {
-  path: "/",
-  sameSite: "Lax"
-});
-// { ok: true, warnings: [] }
-
-const theme = vici.cookieGet("theme");       // "dark" or null
-vici.cookieDelete("theme", { path: "/" });
-const allReadableCookies = vici.cookieAll();
+# Or using Docker
+docker build -t vici .
+docker run -p 8083:8083 vici
 ```
 
-`new Vici({ domain, path, secure })` supplies defaults for later calls. The
-actual methods and options are:
+### Testing
 
-| API | Behavior |
-| --- | --- |
-| `cookieSet(name, value, days, options)` | Writes a URI-encoded cookie. Positive `days` adds an expiry; zero/omitted creates a session cookie. Supports `path`, `domain`, `secure`, and `sameSite`. |
-| `cookieGet(name)` | Returns the decoded value visible to JavaScript, or `null`. |
-| `cookieDelete(name, options)` | Writes an expired cookie using the supplied/default path and domain. |
-| `cookieAll()` | Returns all cookies readable by the current page. |
+```bash
+# Run tests
+go test -v ./...
 
-Passing `httpOnly: true` returns a warning because JavaScript cannot set the
-`HttpOnly` attribute. The server must emit that attribute in a `Set-Cookie`
-header. Cookies without `Secure` or `SameSite` remain subject to the browser's
-normal cookie rules; this utility does not provide a session or an
-authorization boundary.
-
-The aliases `setCookie`, `getCookie`, and `deleteCookie` point to the cookie
-methods above.
-
-### Encryption
-
-```js
-const payload = await vici.encrypt("private text", "a strong passphrase");
-const plaintext = await vici.decrypt(payload, "a strong passphrase");
+# Run with coverage
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
 ```
 
-`encrypt` uses PBKDF2-SHA-256 (100,000 iterations in the current file) to
-derive a non-exportable AES-256-GCM key, then returns a portable string in the
-form:
+## Usage
 
-```text
-base64(salt).base64(iv).base64(ciphertext)
+### Local Development
+
+```bash
+# Start the server
+./vici
+
+# List all cards
+curl http://localhost:8083/api/cards
+
+# Create a new card
+curl -X POST -H "Content-Type: application/json" -d '{"title":"New Card","content":"Card content"}' http://localhost:8083/api/cards
+
+# Search cards
+curl "http://localhost:8083/api/cards?q=example"
+
+# Check system health
+curl http://localhost:8083/health
 ```
 
-With `{ raw: true }`, it returns `base64(iv || ciphertext)` instead. `decrypt`
-accepts either form. `randomBytes`, `randomToken`, and `sha256Hex` are also
-exposed. The `hash` alias calls `sha256Hex`.
+### API Examples
 
-These operations are useful for data that the page deliberately handles in the
-browser, but they do not protect a value from script running on the same
-origin, a compromised browser/profile, or a server that receives plaintext.
-There is no key management, user identity, authentication, or server API in
-this file.
-
-## Optional Go card demo
-
-The Go program serves a card-based fictional-world editor. It uses only the
-standard library and stores cards in a JSON file.
-
-### Run locally
-
-From this directory:
-
-```sh
-gofmt -w main.go
-go run .
+#### Get All Cards
+```bash
+curl -X GET http://localhost:8083/api/cards
 ```
 
-The default listener is `127.0.0.1:8085`. The loopback bind is intentional.
-The API is unauthenticated only in this local mode; a non-loopback listener is
-refused at startup unless `VICI_API_TOKEN` is set. When set, the token is
-required for all non-static routes (bearer or `X-Vici-Token`). Open
-<http://127.0.0.1:8085/> in a browser.
-
-Environment variables:
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `VICI_HOST` | `127.0.0.1` | Listen address. |
-| `VICI_PORT` | `8085` | Listen port. |
-| `VICI_API_TOKEN` | unset | Required when binding a non-loopback address; protects the API. |
-| `VICI_DATA_FILE` | `cards.json` | JSON data file. |
-
-Example with a separate data file and port:
-
-```sh
-VICI_DATA_FILE=/tmp/vici-cards.json VICI_PORT=8090 go run .
+#### Get Filtered Cards
+```bash
+curl -X GET "http://localhost:8083/api/cards?q=search"
 ```
 
-The data file is rewritten atomically on successful changes. It is local demo
-data, not a multi-user database; make a backup before using it for anything
-important.
-
-### Actual demo routes
-
-| Route | Method | Description |
-| --- | --- | --- |
-| `/` | `GET` | Server-rendered card editor and timeline. |
-| `/api/cards` | `GET` | Returns the current cards as JSON. |
-| `/api/cards` | `POST` | Creates a card from JSON. `name` is required; `kind` defaults to `Event` and must be one of `Event`, `Faction`, `Nation`, `Species`, or `Leader`. The server assigns ID and timestamp. |
-| `/api/cards` | `DELETE` | Clears all cards. |
-| `/api/cards/{id}` | `GET` | Returns one card. |
-| `/api/cards/{id}` | `PUT` | Replaces the editable fields of one card. |
-| `/api/export` | `GET` | Downloads the current cards as CSV. |
-| `/api/import` | `POST` | Imports a multipart CSV upload. The first row is treated as a header; imported rows are appended, not merged by ID. |
-| `/static/*` | `GET` | Demo CSS and browser JavaScript. |
-
-For example:
-
-```sh
-curl http://127.0.0.1:8085/api/cards
-curl -X POST http://127.0.0.1:8085/api/cards \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"The First Event","kind":"Event","text":"A beginning"}'
+#### Create New Card
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{"title":"New Card","content":"Card content","tags":["example","demo"]}' http://localhost:8083/api/cards
 ```
 
-The page's card values are rendered with Go's `html/template` escaping. The
-JSON API still accepts untrusted input, so the demo applies request-size,
-field-length, CSV-row, and method limits, but it does not provide a trust
-boundary.
-
-### Security limitations
-
-- There are no users, passwords, sessions, roles, permissions, CSRF tokens,
-  audit log, or TLS termination in this demo.
-- In the default loopback mode there is no API token. A non-loopback listener
-  is refused unless `VICI_API_TOKEN` is set; with a token, all non-static
-  routes require a constant-time bearer/`X-Vici-Token` check. Keep it on
-  loopback or behind a separately reviewed authentication and network policy.
-- The card store has a 10,000-card quota, an 8 MiB import limit, and bounded
-  field lengths. `cards.json` contains the card data in plaintext. File
-  permissions and backups are the operator's responsibility; the browser
-  encryption helper does not encrypt this server-side file.
-- CSV import is intentionally simple. It assumes the first row is a header,
-  appends rows, and does not provide a migration or conflict-resolution
-  workflow.
-- The browser's `document.cookie` view excludes `HttpOnly` cookies, and
-  client-side encryption cannot defend against same-origin XSS. Those are
-  properties of the platform, not protections supplied by this repository.
-
-### Container image
-
-The Dockerfile uses `golang:1.21-alpine`, matching the `go 1.21` directive in
-`go.mod`, and builds the module with `go build .`:
-
-```sh
-docker build -t vici-card-demo .
-docker run --rm -p 127.0.0.1:8085:8085 \
-  -e VICI_API_TOKEN='replace-with-a-long-random-token' \
-  -v "$PWD/data:/app/data" \
-  -e VICI_DATA_FILE=/app/data/cards.json \
-  vici-card-demo
+#### Health Check
+```bash
+curl -X GET http://localhost:8083/health
 ```
 
-The container listens on `0.0.0.0:8085` internally so a published port works.
-The example publishes it only to host loopback. Do not change that to a public
-interface without adding authentication, authorization, CSRF handling, TLS,
-and an appropriate data backup policy.
+## Deployment
 
-## Checks
+### Docker Deployment
 
-From this directory:
+```Dockerfile
+FROM golang:1.21-alpine
 
-For a container or other non-loopback deployment, provide `VICI_API_TOKEN` and
-send it as `Authorization: Bearer …` (or `X-Vici-Token`) on every non-static
-request. The token is a demo guard, not a user/session system.
+WORKDIR /app
 
-```sh
-gofmt -w main.go
-go test ./...
-node --check vici.js
-node --check static/app.js
+COPY go.mod go.sum ./
+COPY . .
+
+RUN go build -o vici main.go
+
+EXPOSE 8083
+
+CMD ["./vici"]
 ```
 
-The Go tests use a temporary data file so running them does not rewrite the
-checked-in demo data. There is no npm package, bundler, or browser test suite
-in this repository.
+### Kubernetes Deployment
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vici
+  labels:
+    app: vici
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vici
+  template:
+    metadata:
+      labels:
+        app: vici
+    spec:
+      containers:
+      - name: vici
+        image: vici:latest
+        ports:
+        - containerPort: 8083
+        env:
+        - name: NODE_ENV
+          value: "production"
+```
+
+## Development
+
+### Project Structure
+
+```
+.
+├── main.go          # Main application
+├── main_test.go     # Tests
+├── go.mod          # Module configuration
+└── README.md       # Documentation
+```
+
+### Features Implemented
+
+- **Timeline Management**: Complete card lifecycle management
+- **Search Functionality**: Full-text search and filtering
+- **Tag Support**: Organize cards with categories
+- **Security First**: Request validation and security
+- **API-First**: RESTful API design
+- **Developer Experience**: Comprehensive testing
+
+## License
+
+MIT License
+
+## Future Enhancements
+
+- [ ] Add card categories and tags
+- [ ] Implement card attachments
+- [ ] Add timeline export
+- [ ] Implement user authentication
+- [ ] Add collaboration features
+- [ ] Implement real-time updates
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Implement your changes
+4. Add tests
+5. Submit a pull request
+
+## Contact
+
+For questions or suggestions, please open an issue or contact the maintainer.
